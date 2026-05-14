@@ -1,0 +1,18 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+.env/
+venv/
+.venv/
+
+# Editor files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+
+# Temporary files
+*.swp
