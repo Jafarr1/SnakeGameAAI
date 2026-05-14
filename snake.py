@@ -1,263 +1,143 @@
-from enum import Enum
 import random
 from collections import deque
 import pygame
-import numpy as np
-
-
-pygame.init()
-
-FONT = pygame.font.SysFont('arial', 25)
-
-BLOCK_SIZE = 20
-SPEED = 40
-
-
-class Direction(Enum):
-    RIGHT = 1
-    LEFT = 2
-    UP = 3
-    DOWN = 4
 
 
 class Vector:
-    def __init__(self, x=0, y=0):
+    def __init__(self, x: int = 0, y: int = 0):
         self.x = x
         self.y = y
 
-    def __add__(self, other):
+    def __str__(self):
+        return f'Vector({self.x}, {self.y})'
+
+    def __add__(self, other: 'Vector') -> 'Vector':
         return Vector(self.x + other.x, self.y + other.y)
 
-    def __eq__(self, other):
+    def within(self, scope: 'Vector') -> bool:
+        return self.x <= scope.x and self.x >= 0 and self.y <= scope.y and self.y >= 0
+
+    def __eq__(self, other: 'Vector') -> bool:
         return self.x == other.x and self.y == other.y
 
-    def copy(self):
-        return Vector(self.x, self.y)
-
     @classmethod
-    def random_within(cls, scope):
-        return Vector(
-            random.randint(0, scope.x - 1),
-            random.randint(0, scope.y - 1)
-        )
+    def random_within(cls, scope: 'Vector') -> 'Vector':
+        return Vector(random.randint(0, scope.x - 1), random.randint(0, scope.y - 1))
 
 
 class SnakeGame:
-
-    def __init__(self, xsize=30, ysize=30, scale=20):
-
+    def __init__(self, xsize: int = 30, ysize: int = 30, scale: int = 15):
         self.grid = Vector(xsize, ysize)
         self.scale = scale
-
-        self.width = xsize * scale
-        self.height = ysize * scale
-
-        self.display = pygame.display.set_mode((self.width, self.height))
-        pygame.display.set_caption("Snake AI")
-
+        pygame.init()
+        self.screen = pygame.display.set_mode((xsize * scale, ysize * scale))
         self.clock = pygame.time.Clock()
 
-        self.reset()
+        self.color_snake_head = (0, 255, 0)
+        self.color_food = (255, 0, 0)
 
-    def reset(self):
+    def __del__(self):
+        pygame.quit()
 
-        self.direction = Direction.RIGHT
+    def block(self, obj):
+        return (obj.x * self.scale, obj.y * self.scale, self.scale, self.scale)
 
-        center = Vector(
-            self.grid.x // 2,
-            self.grid.y // 2
-        )
+    def run(self):
+        running = True
+        snake = Snake(game=self)
+        food = Food(game=self)
 
-        self.snake = deque([
-            center,
-            Vector(center.x - 1, center.y),
-            Vector(center.x - 2, center.y)
-        ])
+        while running:
 
-        self.head = self.snake[0]
+            # handle pygame events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_LEFT:
+                        snake.v = Vector(-1, 0)
+                    if event.key == pygame.K_RIGHT:
+                        snake.v = Vector(1, 0)
+                    if event.key == pygame.K_UP:
+                        snake.v = Vector(0, -1)
+                    if event.key == pygame.K_DOWN:
+                        snake.v = Vector(0, 1)
 
+            # wipe screen
+            self.screen.fill('black')
+
+            # update game state
+            snake.move()
+            if not snake.p.within(self.grid):
+                running = False
+            if snake.cross_own_tail:
+                running = False
+            if snake.p == food.p:
+                snake.add_score()
+                food = Food(game=self)
+
+            # render game
+            for i, p in enumerate(snake.body):
+                pygame.draw.rect(self.screen,
+                                 (0, max(128, 255 - i * 8), 0),
+                                 self.block(p))
+            pygame.draw.rect(self.screen, self.color_food, self.block(food.p))
+
+            # render screen
+            pygame.display.flip()
+
+            # progress time
+            self.clock.tick(10)
+
+        print(f'Score: {snake.score}')
+
+
+class Food:
+    def __init__(self, game: SnakeGame):
+        self.game = game
+        self.p = Vector.random_within(self.game.grid)
+
+
+class Snake:
+    def __init__(self, *, game: SnakeGame):
+        self.game = game
         self.score = 0
-        self.frame_iteration = 0
+        self.v = Vector(0, 0)
+        self.body = deque()
+        self.body.append(Vector.random_within(self.game.grid))
 
-        self._place_food()
+    def move(self):
+        self.p = self.p + self.v
 
-    def _place_food(self):
-
-        while True:
-
-            food = Vector.random_within(self.grid)
-
-            if food not in self.snake:
-                self.food = food
-                break
-
-    def play_step(self, action):
-
-        self.frame_iteration += 1
-
-        # quit event
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                quit()
-
-        # move
-        self._move(action)
-
-        self.snake.appendleft(self.head)
-
-        reward = 0
-        game_over = False
-
-        # collision
-        if self.is_collision() or self.frame_iteration > 100 * len(self.snake):
-
-            game_over = True
-            reward = -10
-
-            return reward, game_over, self.score
-
-        # food
-        if self.head == self.food:
-
-            self.score += 1
-            reward = 10
-
-            self._place_food()
-
-        else:
-            self.snake.pop()
-
-        # update UI
-        self._update_ui()
-
-        self.clock.tick(SPEED)
-
-        return reward, game_over, self.score
-
-    def is_collision(self, pt=None):
-
-        if pt is None:
-            pt = self.head
-
-        # wall collision
-        if (
-            pt.x < 0 or
-            pt.x >= self.grid.x or
-            pt.y < 0 or
-            pt.y >= self.grid.y
-        ):
+    @property
+    def cross_own_tail(self):
+        try:
+            self.body.index(self.p, 1)
             return True
+        except ValueError:
+            return False
 
-        # self collision
-        if pt in list(self.snake)[1:]:
-            return True
+    @property
+    def p(self):
+        return self.body[0]
 
-        return False
+    @p.setter
+    def p(self, value):
+        self.body.appendleft(value)
+        self.body.pop()
 
-    def _update_ui(self):
+    def add_score(self):
+        self.score += 1
+        tail = self.body.pop()
+        self.body.append(tail)
+        self.body.append(tail)
 
-        self.display.fill((0, 0, 0))
-
-        # snake
-        for i, pt in enumerate(self.snake):
-
-            color = (0, max(100, 255 - i * 5), 0)
-
-            pygame.draw.rect(
-                self.display,
-                color,
-                pygame.Rect(
-                    pt.x * self.scale,
-                    pt.y * self.scale,
-                    self.scale,
-                    self.scale
-                )
-            )
-
-        # food
-        pygame.draw.rect(
-            self.display,
-            (255, 0, 0),
-            pygame.Rect(
-                self.food.x * self.scale,
-                self.food.y * self.scale,
-                self.scale,
-                self.scale
-            )
-        )
-
-        # score
-        text = FONT.render(f"Score: {self.score}", True, (255,255,255))
-        self.display.blit(text, [0,0])
-
-        pygame.display.flip()
-
-    def _move(self, action):
-
-        clock_wise = [
-            Direction.RIGHT,
-            Direction.DOWN,
-            Direction.LEFT,
-            Direction.UP
-        ]
-
-        idx = clock_wise.index(self.direction)
-
-        # straight
-        if np.array_equal(action, [1,0,0]):
-
-            new_dir = clock_wise[idx]
-
-        # right turn
-        elif np.array_equal(action, [0,1,0]):
-
-            next_idx = (idx + 1) % 4
-            new_dir = clock_wise[next_idx]
-
-        # left turn
-        else:
-
-            next_idx = (idx - 1) % 4
-            new_dir = clock_wise[next_idx]
-
-        self.direction = new_dir
-
-        x = self.head.x
-        y = self.head.y
-
-        if self.direction == Direction.RIGHT:
-            x += 1
-
-        elif self.direction == Direction.LEFT:
-            x -= 1
-
-        elif self.direction == Direction.DOWN:
-            y += 1
-
-        elif self.direction == Direction.UP:
-            y -= 1
-
-        self.head = Vector(x, y)
+    def debug(self):
+        print('===')
+        for i in self.body:
+            print(str(i))
 
 
 if __name__ == '__main__':
-
     game = SnakeGame()
-
-    while True:
-
-        # temporary random AI
-        action = random.choice([
-            [1,0,0],
-            [0,1,0],
-            [0,0,1]
-        ])
-
-        reward, game_over, score = game.play_step(action)
-
-        if game_over:
-
-            print("Final Score:", score)
-
-            break
+    game.run()
