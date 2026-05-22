@@ -101,6 +101,8 @@ class SnakeGame:
 
         self.frame_iteration += 1
 
+        prev_distance = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
+
         # quit event
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -112,7 +114,7 @@ class SnakeGame:
 
         self.snake.appendleft(self.head)
 
-        reward = 0
+        reward = -0.01
         game_over = False
 
         # collision
@@ -133,6 +135,12 @@ class SnakeGame:
 
         else:
             self.snake.pop()
+
+        new_distance = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
+        if new_distance < prev_distance:
+            reward += 0.1
+        elif new_distance > prev_distance:
+            reward -= 0.1
 
         # update UI
         self._update_ui()

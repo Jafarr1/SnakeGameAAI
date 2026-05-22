@@ -42,21 +42,23 @@ class Genome:
         return clone
 
 
-def evaluate(genome: Genome, env: SnakeEnv, max_steps: int) -> tuple[float, int]:
+def evaluate(genome: Genome, env: SnakeEnv, max_steps: int) -> tuple[float, int, float]:
     state = env.reset()
     score = 0
     steps = 0
+    total_reward = 0.0
 
     for _ in range(max_steps):
         action = genome.act(state)
         state, reward, done, _, info = env.step(action)
         score = info.get("score", 0)
+        total_reward += reward
         steps += 1
         if done:
             break
 
-    fitness = score * 100 + steps
-    return fitness, score
+    fitness = total_reward
+    return fitness, score, total_reward
 
 
 def crossover(parent_a: Genome, parent_b: Genome) -> Genome:
@@ -107,20 +109,23 @@ def train_ga(generations: int = 50, record_every: int = 10, recordings_dir: str 
     for generation in range(1, config.generations + 1):
         scored = []
         for genome in population:
-            fitness, score = evaluate(genome, env, config.max_steps)
-            scored.append((fitness, score, genome))
+            fitness, score, total_reward = evaluate(genome, env, config.max_steps)
+            scored.append((fitness, score, total_reward, genome))
 
         scored.sort(key=lambda x: x[0], reverse=True)
-        best_fitness, best_score, best_genome = scored[0]
+        best_fitness, best_score, best_reward, best_genome = scored[0]
 
-        print(f"Generation {generation} | Best score {best_score} | Fitness {best_fitness:.1f}")
+        print(
+            f"Generation {generation} | Best score {best_score} | "
+            f"Reward {best_reward:.2f} | Fitness {best_fitness:.2f}"
+        )
 
         if record_every and generation % record_every == 0:
             filename = os.path.join(recordings_dir, f"ga_generation_{generation}.mp4")
             record_score = record_episode(best_genome, filename)
             print(f"Recorded GA generation {generation} (score {record_score}) -> {filename}")
 
-        elites = [genome.copy() for _, _, genome in scored[: config.elite_size]]
+        elites = [genome.copy() for _, _, _, genome in scored[: config.elite_size]]
         next_population = elites[:]
 
         while len(next_population) < config.population_size:
