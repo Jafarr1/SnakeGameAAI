@@ -44,7 +44,7 @@ class Vector:
 
 class SnakeGame:
 
-    def __init__(self, xsize=30, ysize=30, scale=20):
+    def __init__(self, xsize=30, ysize=30, scale=20, *, render=True, speed=SPEED):
 
         self.grid = Vector(xsize, ysize)
         self.scale = scale
@@ -52,8 +52,14 @@ class SnakeGame:
         self.width = xsize * scale
         self.height = ysize * scale
 
-        self.display = pygame.display.set_mode((self.width, self.height))
-        pygame.display.set_caption("Snake AI")
+        self.render_enabled = render
+        self.speed = speed
+
+        if self.render_enabled:
+            self.display = pygame.display.set_mode((self.width, self.height))
+            pygame.display.set_caption("Snake AI")
+        else:
+            self.display = pygame.Surface((self.width, self.height))
 
         self.clock = pygame.time.Clock()
 
@@ -131,7 +137,8 @@ class SnakeGame:
         # update UI
         self._update_ui()
 
-        self.clock.tick(SPEED)
+        if self.speed and self.speed > 0:
+            self.clock.tick(self.speed)
 
         return reward, game_over, self.score
 
@@ -155,7 +162,7 @@ class SnakeGame:
 
         return False
 
-    def _update_ui(self):
+    def _draw(self):
 
         self.display.fill((0, 0, 0))
 
@@ -191,7 +198,19 @@ class SnakeGame:
         text = FONT.render(f"Score: {self.score}", True, (255,255,255))
         self.display.blit(text, [0,0])
 
+    def _update_ui(self):
+
+        if not self.render_enabled:
+            return
+
+        self._draw()
         pygame.display.flip()
+
+    def render_frame(self):
+
+        self._draw()
+        frame = pygame.surfarray.array3d(self.display)
+        return np.transpose(frame, (1, 0, 2))
 
     def _move(self, action):
 
