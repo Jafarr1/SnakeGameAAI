@@ -101,11 +101,13 @@ def record_episode(genome: Genome, filename: str, *, max_steps: int = 1000):
 
 
 def train_ga(generations: int = 100, record_every: int = 10, recordings_dir: str = "recordings"):
+    import time
     config = GAConfig(generations=generations)
     env = SnakeEnv(render=False, speed=0)
 
     population = [Genome() for _ in range(config.population_size)]
-    best_scores_history = []
+    history = []
+    start_time = time.time() # Start stopuret
 
     for generation in range(1, config.generations + 1):
         scored = []
@@ -116,17 +118,19 @@ def train_ga(generations: int = 100, record_every: int = 10, recordings_dir: str
         scored.sort(key=lambda x: x[0], reverse=True)
         best_fitness, best_score, best_reward, best_genome = scored[0]
         
-        best_scores_history.append(best_score)
+        # Beregn AVERAGE score for hele populationen i denne generation
+        avg_score = sum(s[1] for s in scored) / len(scored)
+        
+        elapsed_time = time.time() - start_time
+        
+        # Gem best_score (den kloge slange) i stedet for gennemsnittet af alle mutationerne
+        history.append((elapsed_time, best_score))
 
-        print(
-            f"Generation {generation} | Best score {best_score} | "
-            f"Reward {best_reward:.2f} | Fitness {best_fitness:.2f}"
-        )
+        print(f"Gen {generation} | Best {best_score} | Avg {avg_score:.2f} | Time {elapsed_time:.1f}s")
 
         if record_every and generation % record_every == 0:
             filename = os.path.join(recordings_dir, f"ga_generation_{generation}.mp4")
             record_score = record_episode(best_genome, filename)
-            print(f"Recorded GA generation {generation} (score {record_score}) -> {filename}")
 
         elites = [genome.copy() for _, _, _, genome in scored[: config.elite_size]]
         next_population = elites[:]
@@ -139,7 +143,7 @@ def train_ga(generations: int = 100, record_every: int = 10, recordings_dir: str
 
         population = next_population
 
-    return best_scores_history
+    return history
 
 if __name__ == "__main__":
     train_ga(generations=50, record_every=0, recordings_dir="recordings")

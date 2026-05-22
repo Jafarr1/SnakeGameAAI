@@ -1,5 +1,6 @@
 import os
 import random
+import time
 from collections import deque
 from dataclasses import dataclass
 
@@ -133,7 +134,7 @@ def train_dqn(episodes: int = 50, record_every: int = 50, recordings_dir: str = 
 
     best_score = 0
     scores_history = []
-
+    start_time = time.time() # Start stopuret
 
     for episode in range(1, episodes + 1):
         state = env.reset()
@@ -152,18 +153,20 @@ def train_dqn(episodes: int = 50, record_every: int = 50, recordings_dir: str = 
 
         score = info.get("score", 0)
         best_score = max(best_score, score)
-        scores_history.append(score)
+        
+        # Gem tidspunkt og score
+        elapsed_time = time.time() - start_time
+        scores_history.append((elapsed_time, score))
 
-        print(f"Episode {episode} | Score {score} | Best {best_score} | Epsilon {agent.epsilon:.3f}")
+        # Print fremskridt hver 10. episode så du kan følge med i terminalen
+        if episode % 10 == 0:
+            print(f"DQN Episode {episode}/{episodes} | Score: {score} | Best: {best_score} | Tid: {elapsed_time:.1f}s | Epsilon: {agent.epsilon:.2f}")
 
         if record_every and episode % record_every == 0:
             filename = os.path.join(recordings_dir, f"dqn_episode_{episode}.mp4")
             record_score = record_episode(agent.model, filename)
-            print(f"Recorded DQN episode {episode} (score {record_score}) -> {filename}")
 
     return scores_history
-
-
 
 if __name__ == "__main__":
     train_dqn(episodes=50, record_every=0)
