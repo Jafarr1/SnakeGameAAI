@@ -43,8 +43,8 @@ class QTrainer:
         self.criterion = nn.MSELoss()
 
     def train_step(self, state, action, reward, next_state, done):
-        state = torch.tensor(state, dtype=torch.float)
-        next_state = torch.tensor(next_state, dtype=torch.float)
+        state = torch.tensor(np.array(state), dtype=torch.float)
+        next_state = torch.tensor(np.array(next_state), dtype=torch.float)
         action = torch.tensor(action, dtype=torch.long)
         reward = torch.tensor(reward, dtype=torch.float)
 
@@ -126,12 +126,14 @@ def record_episode(model: LinearQNet, filename: str, *, max_steps: int = 1000):
     return info.get("score", 0)
 
 
-def train_dqn(episodes: int = 200, record_every: int = 50, recordings_dir: str = "recordings"):
+def train_dqn(episodes: int = 50, record_every: int = 50, recordings_dir: str = "recordings"):
     config = DQNConfig()
     env = SnakeEnv(render=False, speed=0)
     agent = DQNAgent(config)
 
     best_score = 0
+    scores_history = []
+
 
     for episode in range(1, episodes + 1):
         state = env.reset()
@@ -150,6 +152,8 @@ def train_dqn(episodes: int = 200, record_every: int = 50, recordings_dir: str =
 
         score = info.get("score", 0)
         best_score = max(best_score, score)
+        scores_history.append(score)
+
         print(f"Episode {episode} | Score {score} | Best {best_score} | Epsilon {agent.epsilon:.3f}")
 
         if record_every and episode % record_every == 0:
@@ -157,6 +161,9 @@ def train_dqn(episodes: int = 200, record_every: int = 50, recordings_dir: str =
             record_score = record_episode(agent.model, filename)
             print(f"Recorded DQN episode {episode} (score {record_score}) -> {filename}")
 
+    return scores_history
+
+
 
 if __name__ == "__main__":
-    train_dqn()
+    train_dqn(episodes=50, record_every=0)

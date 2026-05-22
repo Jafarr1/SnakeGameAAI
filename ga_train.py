@@ -100,11 +100,12 @@ def record_episode(genome: Genome, filename: str, *, max_steps: int = 1000):
     return info.get("score", 0)
 
 
-def train_ga(generations: int = 50, record_every: int = 10, recordings_dir: str = "recordings"):
+def train_ga(generations: int = 100, record_every: int = 10, recordings_dir: str = "recordings"):
     config = GAConfig(generations=generations)
     env = SnakeEnv(render=False, speed=0)
 
     population = [Genome() for _ in range(config.population_size)]
+    best_scores_history = []
 
     for generation in range(1, config.generations + 1):
         scored = []
@@ -114,6 +115,8 @@ def train_ga(generations: int = 50, record_every: int = 10, recordings_dir: str 
 
         scored.sort(key=lambda x: x[0], reverse=True)
         best_fitness, best_score, best_reward, best_genome = scored[0]
+        
+        best_scores_history.append(best_score)
 
         print(
             f"Generation {generation} | Best score {best_score} | "
@@ -136,6 +139,7 @@ def train_ga(generations: int = 50, record_every: int = 10, recordings_dir: str 
 
         population = next_population
 
+    return best_scores_history
 
 if __name__ == "__main__":
-    train_ga()
+    train_ga(generations=50, record_every=0, recordings_dir="recordings")
