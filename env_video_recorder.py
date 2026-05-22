@@ -1,6 +1,5 @@
 import base64
 import imageio
-import IPython
 
 
 class EnvVideoRecorder:
@@ -44,6 +43,7 @@ class EnvVideoRecorder:
         self._saved = True
         
     def embed_jupyter(self):
+        import IPython
         if self._saved:
             flick = open(self._filename, 'rb')
             video = flick.read()
