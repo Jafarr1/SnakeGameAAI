@@ -136,7 +136,7 @@ def train_dqn(record_every: int = 50, recordings_dir: str = "recordings"):
     best_score = 0
     scores_history = []
 
-    max_training_time = 300  # 5 minutter
+    max_training_time = 600  # 5 minutter
     start_time = time.time()
 
     episode = 0

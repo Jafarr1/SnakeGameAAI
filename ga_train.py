@@ -250,7 +250,7 @@ def train_ga(
     history = []
 
     # 5 minutter
-    max_training_time = 300
+    max_training_time = 600
 
     start_time = time.time()
 
