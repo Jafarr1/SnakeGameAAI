@@ -1,199 +1,365 @@
 import os
 import random
 import time
-from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.optim as optim
 
 from env_video_recorder import EnvVideoRecorder
-from snake_env import ACTION_LEFT, ACTION_RIGHT, ACTION_STRAIGHT, SnakeEnv
+from snake_env import SnakeEnv
+
+
+# reproducibility
+random.seed(42)
+np.random.seed(42)
 
 
 @dataclass
-class DQNConfig:
-    max_memory: int = 100_000
-    batch_size: int = 1000
-    lr: float = 0.001
-    gamma: float = 0.9
-    hidden_size: int = 128
-    epsilon_start: float = 1.0
-    epsilon_min: float = 0.01
-    epsilon_decay: float = 0.995
+class GAConfig:
+
+    population_size: int = 200
+    elite_size: int = 20
+
+    mutation_rate: float = 0.1
+    mutation_strength: float = 0.2
+
+    max_steps: int = 1000
 
 
-class LinearQNet(nn.Module):
-    def __init__(self, input_size: int, hidden_size: int, output_size: int):
-        super().__init__()
-        self.linear1 = nn.Linear(input_size, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, output_size)
+class Genome:
 
-    def forward(self, x):
-        x = torch.relu(self.linear1(x))
-        return self.linear2(x)
+    def __init__(
+        self,
+        input_size: int = 11,
+        hidden_size: int = 16,
+        output_size: int = 3
+    ):
 
+        self.w1 = np.random.randn(
+            input_size,
+            hidden_size
+        ) * 0.5
 
-class QTrainer:
-    def __init__(self, model: nn.Module, lr: float, gamma: float):
-        self.model = model
-        self.gamma = gamma
-        self.optimizer = optim.Adam(model.parameters(), lr=lr)
-        self.criterion = nn.MSELoss()
+        self.b1 = np.zeros(hidden_size)
 
-    def train_step(self, state, action, reward, next_state, done):
-        state = torch.tensor(np.array(state), dtype=torch.float)
-        next_state = torch.tensor(np.array(next_state), dtype=torch.float)
-        action = torch.tensor(action, dtype=torch.long)
-        reward = torch.tensor(reward, dtype=torch.float)
+        self.w2 = np.random.randn(
+            hidden_size,
+            output_size
+        ) * 0.5
 
-        if len(state.shape) == 1:
-            state = torch.unsqueeze(state, 0)
-            next_state = torch.unsqueeze(next_state, 0)
-            action = torch.unsqueeze(action, 0)
-            reward = torch.unsqueeze(reward, 0)
-            done = (done,)
+        self.b2 = np.zeros(output_size)
 
-        pred = self.model(state)
-        target = pred.clone().detach()
+    def forward(self, state: np.ndarray) -> np.ndarray:
 
-        for idx in range(len(done)):
-            q_new = reward[idx]
-            if not done[idx]:
-                q_new = reward[idx] + self.gamma * torch.max(self.model(next_state[idx]))
-            target[idx][action[idx]] = q_new
+        x = np.maximum(
+            0,
+            np.dot(state, self.w1) + self.b1
+        )
 
-        self.optimizer.zero_grad()
-        loss = self.criterion(pred, target)
-        loss.backward()
-        self.optimizer.step()
+        return np.dot(x, self.w2) + self.b2
 
+    def act(self, state: np.ndarray) -> int:
 
-class DQNAgent:
-    def __init__(self, config: DQNConfig):
-        self.n_games = 0
-        self.epsilon = config.epsilon_start
-        self.epsilon_min = config.epsilon_min
-        self.epsilon_decay = config.epsilon_decay
-        self.gamma = config.gamma
-        self.memory = deque(maxlen=config.max_memory)
-        self.model = LinearQNet(11, config.hidden_size, 3)
-        self.trainer = QTrainer(self.model, lr=config.lr, gamma=config.gamma)
+        logits = self.forward(state)
 
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+        return int(np.argmax(logits))
 
-    def train_long_memory(self, batch_size: int):
-        if len(self.memory) > batch_size:
-            mini_sample = random.sample(self.memory, batch_size)
-        else:
-            mini_sample = list(self.memory)
+    def copy(self):
 
-        states, actions, rewards, next_states, dones = zip(*mini_sample)
-        self.trainer.train_step(states, actions, rewards, next_states, dones)
+        clone = Genome()
 
-    def train_short_memory(self, state, action, reward, next_state, done):
-        self.trainer.train_step(state, action, reward, next_state, done)
+        clone.w1 = np.copy(self.w1)
+        clone.b1 = np.copy(self.b1)
 
-    def get_action(self, state):
-        if random.random() < self.epsilon:
-            return random.choice([ACTION_STRAIGHT, ACTION_RIGHT, ACTION_LEFT])
+        clone.w2 = np.copy(self.w2)
+        clone.b2 = np.copy(self.b2)
 
-        state0 = torch.tensor(state, dtype=torch.float)
-        prediction = self.model(state0)
-        return int(torch.argmax(prediction).item())
-
-    def update_epsilon(self):
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        return clone
 
 
-def record_episode(model: LinearQNet, filename: str, *, max_steps: int = 1000):
-    env = SnakeEnv(render=True, speed=20)
+def evaluate(
+    genome: Genome,
+    env: SnakeEnv,
+    max_steps: int,
+    games: int = 5
+):
+
+    total_fitness = 0
+    total_score = 0
+
+    for _ in range(games):
+
+        state = env.reset()
+
+        score = 0
+        steps = 0
+
+        for _ in range(max_steps):
+
+            action = genome.act(state)
+
+            state, reward, done, _, info = env.step(action)
+
+            score = info.get("score", 0)
+
+            steps += 1
+
+            if done:
+                break
+
+        # bedre fitness function
+        fitness = score * 100 + steps
+
+        total_fitness += fitness
+        total_score += score
+
+    avg_fitness = total_fitness / games
+    avg_score = total_score / games
+
+    return avg_fitness, avg_score
+
+
+def crossover(
+    parent_a: Genome,
+    parent_b: Genome
+) -> Genome:
+
+    child = parent_a.copy()
+
+    mask_w1 = np.random.rand(
+        *child.w1.shape
+    ) < 0.5
+
+    mask_b1 = np.random.rand(
+        *child.b1.shape
+    ) < 0.5
+
+    mask_w2 = np.random.rand(
+        *child.w2.shape
+    ) < 0.5
+
+    mask_b2 = np.random.rand(
+        *child.b2.shape
+    ) < 0.5
+
+    child.w1 = np.where(
+        mask_w1,
+        parent_a.w1,
+        parent_b.w1
+    )
+
+    child.b1 = np.where(
+        mask_b1,
+        parent_a.b1,
+        parent_b.b1
+    )
+
+    child.w2 = np.where(
+        mask_w2,
+        parent_a.w2,
+        parent_b.w2
+    )
+
+    child.b2 = np.where(
+        mask_b2,
+        parent_a.b2,
+        parent_b.b2
+    )
+
+    return child
+
+
+def mutate(
+    genome: Genome,
+    rate: float,
+    strength: float
+):
+
+    for param in [
+        genome.w1,
+        genome.b1,
+        genome.w2,
+        genome.b2
+    ]:
+
+        mask = np.random.rand(
+            *param.shape
+        ) < rate
+
+        param += (
+            mask
+            * np.random.randn(*param.shape)
+            * strength
+        )
+
+
+def record_episode(
+    genome: Genome,
+    filename: str,
+    *,
+    max_steps: int = 1000
+):
+
+    env = SnakeEnv(
+        render=True,
+        speed=20
+    )
+
     recorder = EnvVideoRecorder(env)
 
     state = recorder.reset()
+
     for _ in range(max_steps):
+
         recorder.render()
-        state0 = torch.tensor(state, dtype=torch.float)
-        action = int(torch.argmax(model(state0)).item())
+
+        action = genome.act(state)
+
         state, reward, done, _, info = recorder.step(action)
+
         if done:
             break
 
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    os.makedirs(
+        os.path.dirname(filename),
+        exist_ok=True
+    )
+
     recorder.save(filename)
+
     return info.get("score", 0)
 
 
-def train_dqn(record_every: int = 50, recordings_dir: str = "recordings"):
+def train_ga(
+    record_every: int = 10,
+    recordings_dir: str = "recordings"
+):
 
-    config = DQNConfig()
-    env = SnakeEnv(render=False, speed=0)
-    agent = DQNAgent(config)
+    config = GAConfig()
 
-    best_score = 0
-    scores_history = []
+    env = SnakeEnv(
+        render=False,
+        speed=0
+    )
 
-    max_training_time = 300  # 5 minutter
+    population = [
+        Genome()
+        for _ in range(config.population_size)
+    ]
+
+    history = []
+
+    # 5 minutter
+    max_training_time = 300
+
     start_time = time.time()
 
-    episode = 0
+    generation = 0
 
     while time.time() - start_time < max_training_time:
 
-        episode += 1
+        generation += 1
 
-        state = env.reset()
-        done = False
+        scored = []
 
-        while not done:
+        for genome in population:
 
-            action = agent.get_action(state)
-
-            next_state, reward, done, _, info = env.step(action)
-
-            agent.train_short_memory(
-                state,
-                action,
-                reward,
-                next_state,
-                done
+            fitness, avg_score = evaluate(
+                genome,
+                env,
+                config.max_steps,
+                games=5
             )
 
-            agent.remember(
-                state,
-                action,
-                reward,
-                next_state,
-                done
+            scored.append(
+                (
+                    fitness,
+                    avg_score,
+                    genome
+                )
             )
 
-            state = next_state
+        # sortér efter fitness
+        scored.sort(
+            key=lambda x: x[0],
+            reverse=True
+        )
 
-        agent.n_games += 1
+        best_fitness, best_score, best_genome = scored[0]
 
-        agent.train_long_memory(config.batch_size)
-
-        agent.update_epsilon()
-
-        score = info.get("score", 0)
-
-        best_score = max(best_score, score)
+        population_avg = sum(
+            s[1] for s in scored
+        ) / len(scored)
 
         elapsed_time = time.time() - start_time
 
-        scores_history.append((elapsed_time, score))
+        history.append(
+            (
+                elapsed_time,
+                best_score
+            )
+        )
 
-        if episode % 10 == 0:
+        print(
+            f"GA Generation {generation} | "
+            f"Best Score: {best_score:.2f} | "
+            f"Population Avg: {population_avg:.2f} | "
+            f"Time: {elapsed_time:.1f}s"
+        )
 
-            print(
-                f"DQN Episode {episode} | "
-                f"Score: {score} | "
-                f"Best: {best_score} | "
-                f"Time: {elapsed_time:.1f}s | "
-                f"Epsilon: {agent.epsilon:.2f}"
+        # optional video recording
+        if (
+            record_every
+            and generation % record_every == 0
+        ):
+
+            filename = os.path.join(
+                recordings_dir,
+                f"ga_generation_{generation}.mp4"
             )
 
-    return scores_history
+            record_episode(
+                best_genome,
+                filename
+            )
+
+        # behold elites
+        elites = [
+            genome.copy()
+            for _, _, genome
+            in scored[:config.elite_size]
+        ]
+
+        next_population = elites[:]
+
+        # generér nye børn
+        while len(next_population) < config.population_size:
+
+            parent_a, parent_b = random.sample(
+                elites,
+                2
+            )
+
+            child = crossover(
+                parent_a,
+                parent_b
+            )
+
+            mutate(
+                child,
+                config.mutation_rate,
+                config.mutation_strength
+            )
+
+            next_population.append(child)
+
+        population = next_population
+
+    return history
+
+
+if __name__ == "__main__":
+
+    train_ga(
+        record_every=0
+    )
