@@ -1,5 +1,6 @@
 import os
 import random
+import time
 from collections import deque
 from dataclasses import dataclass
 
@@ -43,8 +44,8 @@ class QTrainer:
         self.criterion = nn.MSELoss()
 
     def train_step(self, state, action, reward, next_state, done):
-        state = torch.tensor(state, dtype=torch.float)
-        next_state = torch.tensor(next_state, dtype=torch.float)
+        state = torch.tensor(np.array(state), dtype=torch.float)
+        next_state = torch.tensor(np.array(next_state), dtype=torch.float)
         action = torch.tensor(action, dtype=torch.long)
         reward = torch.tensor(reward, dtype=torch.float)
 
@@ -126,37 +127,73 @@ def record_episode(model: LinearQNet, filename: str, *, max_steps: int = 1000):
     return info.get("score", 0)
 
 
-def train_dqn(episodes: int = 200, record_every: int = 50, recordings_dir: str = "recordings"):
+def train_dqn(record_every: int = 50, recordings_dir: str = "recordings"):
+
     config = DQNConfig()
     env = SnakeEnv(render=False, speed=0)
     agent = DQNAgent(config)
 
     best_score = 0
+    scores_history = []
 
-    for episode in range(1, episodes + 1):
+    max_training_time = 300  # 5 minutter
+    start_time = time.time()
+
+    episode = 0
+
+    while time.time() - start_time < max_training_time:
+
+        episode += 1
+
         state = env.reset()
         done = False
 
         while not done:
+
             action = agent.get_action(state)
+
             next_state, reward, done, _, info = env.step(action)
-            agent.train_short_memory(state, action, reward, next_state, done)
-            agent.remember(state, action, reward, next_state, done)
+
+            agent.train_short_memory(
+                state,
+                action,
+                reward,
+                next_state,
+                done
+            )
+
+            agent.remember(
+                state,
+                action,
+                reward,
+                next_state,
+                done
+            )
+
             state = next_state
 
         agent.n_games += 1
+
         agent.train_long_memory(config.batch_size)
+
         agent.update_epsilon()
 
         score = info.get("score", 0)
+
         best_score = max(best_score, score)
-        print(f"Episode {episode} | Score {score} | Best {best_score} | Epsilon {agent.epsilon:.3f}")
 
-        if record_every and episode % record_every == 0:
-            filename = os.path.join(recordings_dir, f"dqn_episode_{episode}.mp4")
-            record_score = record_episode(agent.model, filename)
-            print(f"Recorded DQN episode {episode} (score {record_score}) -> {filename}")
+        elapsed_time = time.time() - start_time
 
+        scores_history.append((elapsed_time, score))
 
-if __name__ == "__main__":
-    train_dqn()
+        if episode % 10 == 0:
+
+            print(
+                f"DQN Episode {episode} | "
+                f"Score: {score} | "
+                f"Best: {best_score} | "
+                f"Time: {elapsed_time:.1f}s | "
+                f"Epsilon: {agent.epsilon:.2f}"
+            )
+
+    return scores_history
