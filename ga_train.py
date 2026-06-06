@@ -1,4 +1,5 @@
 import os
+import pickle
 import random
 import time
 from dataclasses import dataclass
@@ -200,37 +201,36 @@ def record_episode(
     genome: Genome,
     filename: str,
     *,
-    max_steps: int = 1000
+    max_steps: int = 10000,
+    n_attempts: int = 5
 ):
+    import imageio
+    best_score = -1
+    best_frames = []
 
-    env = SnakeEnv(
-        render=True,
-        speed=20
-    )
+    for _ in range(n_attempts):
+        env = SnakeEnv(render=True, speed=20)
+        recorder = EnvVideoRecorder(env)
+        state = recorder.reset()
 
-    recorder = EnvVideoRecorder(env)
+        for _ in range(max_steps):
+            recorder.render()
+            action = genome.act(state)
+            state, reward, done, _, info = recorder.step(action)
+            if done:
+                break
 
-    state = recorder.reset()
+        score = info.get("score", 0)
+        if score > best_score:
+            best_score = score
+            best_frames = list(recorder._frame_buffer)
 
-    for _ in range(max_steps):
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    with imageio.get_writer(filename, fps=30) as writer:
+        for frame in best_frames:
+            writer.append_data(frame)
 
-        recorder.render()
-
-        action = genome.act(state)
-
-        state, reward, done, _, info = recorder.step(action)
-
-        if done:
-            break
-
-    os.makedirs(
-        os.path.dirname(filename),
-        exist_ok=True
-    )
-
-    recorder.save(filename)
-
-    return info.get("score", 0)
+    return best_score
 
 
 def train_ga(
@@ -315,8 +315,11 @@ def train_ga(
                 checkpoints_hit.add(checkpoint)
                 minutes = checkpoint // 60
                 filename = os.path.join(recordings_dir, f"ga_{minutes}min.mp4")
+                genome_path = os.path.join(recordings_dir, f"ga_{minutes}min.pkl")
+                with open(genome_path, "wb") as f:
+                    pickle.dump(best_genome, f)
                 rec_score = record_episode(best_genome, filename)
-                print(f"[GA] Checkpoint {minutes} min — video gemt: {filename} (score: {rec_score})")
+                print(f"[GA] Checkpoint {minutes} min — genome gemt: {genome_path} | video score: {rec_score}")
 
         # optional video recording
         if (

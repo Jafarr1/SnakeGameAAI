@@ -120,22 +120,35 @@ class DQNAgent:
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
 
-def record_episode(model: LinearQNet, filename: str, *, max_steps: int = 1000):
-    env = SnakeEnv(render=True, speed=20)
-    recorder = EnvVideoRecorder(env)
+def record_episode(model: LinearQNet, filename: str, *, max_steps: int = 10000, n_attempts: int = 5):
+    import imageio
+    best_score = -1
+    best_frames = []
 
-    state = recorder.reset()
-    for _ in range(max_steps):
-        recorder.render()
-        state0 = torch.tensor(state, dtype=torch.float)
-        action = int(torch.argmax(model(state0)).item())
-        state, reward, done, _, info = recorder.step(action)
-        if done:
-            break
+    for _ in range(n_attempts):
+        env = SnakeEnv(render=True, speed=20)
+        recorder = EnvVideoRecorder(env)
+        state = recorder.reset()
+
+        for _ in range(max_steps):
+            recorder.render()
+            state0 = torch.tensor(state, dtype=torch.float)
+            action = int(torch.argmax(model(state0)).item())
+            state, reward, done, _, info = recorder.step(action)
+            if done:
+                break
+
+        score = info.get("score", 0)
+        if score > best_score:
+            best_score = score
+            best_frames = list(recorder._frame_buffer)
 
     os.makedirs(os.path.dirname(filename), exist_ok=True)
-    recorder.save(filename)
-    return info.get("score", 0)
+    with imageio.get_writer(filename, fps=30) as writer:
+        for frame in best_frames:
+            writer.append_data(frame)
+
+    return best_score
 
 
 def train_dqn(record_every: int = 50, recordings_dir: str = "recordings"):
@@ -206,8 +219,10 @@ def train_dqn(record_every: int = 50, recordings_dir: str = "recordings"):
                 checkpoints_hit.add(checkpoint)
                 minutes = checkpoint // 60
                 filename = os.path.join(recordings_dir, f"dqn_{minutes}min.mp4")
+                model_path = os.path.join(recordings_dir, f"dqn_{minutes}min.pth")
+                torch.save(agent.model.state_dict(), model_path)
                 rec_score = record_episode(agent.model, filename)
-                print(f"[DQN] Checkpoint {minutes} min — video gemt: {filename} (score: {rec_score})")
+                print(f"[DQN] Checkpoint {minutes} min — model gemt: {model_path} | video score: {rec_score}")
 
         if episode % 10 == 0:
 
