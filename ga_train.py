@@ -9,6 +9,9 @@ from env_video_recorder import EnvVideoRecorder
 from snake_env import SnakeEnv
 
 
+CHECKPOINT_SECONDS = [300, 600, 1200, 3600]  # 5, 10, 20, 60 min
+
+
 # reproducibility
 random.seed(42)
 np.random.seed(42)
@@ -31,7 +34,7 @@ class Genome:
     def __init__(
         self,
         input_size: int = 11,
-        hidden_size: int = 16,
+        hidden_size: int = 64,
         output_size: int = 3
     ):
 
@@ -249,12 +252,12 @@ def train_ga(
 
     history = []
 
-    # 5 minutter
-    max_training_time = 600
+    max_training_time = 3600  # 60 minutter
 
     start_time = time.time()
 
     generation = 0
+    checkpoints_hit = set()
 
     while time.time() - start_time < max_training_time:
 
@@ -306,6 +309,14 @@ def train_ga(
             f"Population Avg: {population_avg:.2f} | "
             f"Time: {elapsed_time:.1f}s"
         )
+
+        for checkpoint in CHECKPOINT_SECONDS:
+            if elapsed_time >= checkpoint and checkpoint not in checkpoints_hit:
+                checkpoints_hit.add(checkpoint)
+                minutes = checkpoint // 60
+                filename = os.path.join(recordings_dir, f"ga_{minutes}min.mp4")
+                rec_score = record_episode(best_genome, filename)
+                print(f"[GA] Checkpoint {minutes} min — video gemt: {filename} (score: {rec_score})")
 
         # optional video recording
         if (

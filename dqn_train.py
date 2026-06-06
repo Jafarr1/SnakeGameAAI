@@ -13,6 +13,9 @@ from env_video_recorder import EnvVideoRecorder
 from snake_env import ACTION_LEFT, ACTION_RIGHT, ACTION_STRAIGHT, SnakeEnv
 
 
+CHECKPOINT_SECONDS = [300, 600, 1200, 3600]  # 5, 10, 20, 60 min
+
+
 @dataclass
 class DQNConfig:
     max_memory: int = 100_000
@@ -23,6 +26,7 @@ class DQNConfig:
     epsilon_start: float = 1.0
     epsilon_min: float = 0.01
     epsilon_decay: float = 0.995
+    target_update_freq: int = 100
 
 
 class LinearQNet(nn.Module):
@@ -37,8 +41,9 @@ class LinearQNet(nn.Module):
 
 
 class QTrainer:
-    def __init__(self, model: nn.Module, lr: float, gamma: float):
+    def __init__(self, model: nn.Module, target_model: nn.Module, lr: float, gamma: float):
         self.model = model
+        self.target_model = target_model
         self.gamma = gamma
         self.optimizer = optim.Adam(model.parameters(), lr=lr)
         self.criterion = nn.MSELoss()
@@ -62,7 +67,7 @@ class QTrainer:
         for idx in range(len(done)):
             q_new = reward[idx]
             if not done[idx]:
-                q_new = reward[idx] + self.gamma * torch.max(self.model(next_state[idx]))
+                q_new = reward[idx] + self.gamma * torch.max(self.target_model(next_state[idx]))
             target[idx][action[idx]] = q_new
 
         self.optimizer.zero_grad()
@@ -80,7 +85,13 @@ class DQNAgent:
         self.gamma = config.gamma
         self.memory = deque(maxlen=config.max_memory)
         self.model = LinearQNet(11, config.hidden_size, 3)
-        self.trainer = QTrainer(self.model, lr=config.lr, gamma=config.gamma)
+        self.target_model = LinearQNet(11, config.hidden_size, 3)
+        self.target_model.load_state_dict(self.model.state_dict())
+        self.target_model.eval()
+        self.trainer = QTrainer(self.model, self.target_model, lr=config.lr, gamma=config.gamma)
+
+    def update_target_network(self):
+        self.target_model.load_state_dict(self.model.state_dict())
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
@@ -136,10 +147,11 @@ def train_dqn(record_every: int = 50, recordings_dir: str = "recordings"):
     best_score = 0
     scores_history = []
 
-    max_training_time = 600  # 5 minutter
+    max_training_time = 3600  # 60 minutter
     start_time = time.time()
 
     episode = 0
+    checkpoints_hit = set()
 
     while time.time() - start_time < max_training_time:
 
@@ -178,6 +190,9 @@ def train_dqn(record_every: int = 50, recordings_dir: str = "recordings"):
 
         agent.update_epsilon()
 
+        if agent.n_games % config.target_update_freq == 0:
+            agent.update_target_network()
+
         score = info.get("score", 0)
 
         best_score = max(best_score, score)
@@ -185,6 +200,14 @@ def train_dqn(record_every: int = 50, recordings_dir: str = "recordings"):
         elapsed_time = time.time() - start_time
 
         scores_history.append((elapsed_time, score))
+
+        for checkpoint in CHECKPOINT_SECONDS:
+            if elapsed_time >= checkpoint and checkpoint not in checkpoints_hit:
+                checkpoints_hit.add(checkpoint)
+                minutes = checkpoint // 60
+                filename = os.path.join(recordings_dir, f"dqn_{minutes}min.mp4")
+                rec_score = record_episode(agent.model, filename)
+                print(f"[DQN] Checkpoint {minutes} min — video gemt: {filename} (score: {rec_score})")
 
         if episode % 10 == 0:
 
