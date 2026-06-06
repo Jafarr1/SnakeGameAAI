@@ -127,16 +127,23 @@ def record_episode(model: LinearQNet, filename: str, *, max_steps: int = 1000):
     return info.get("score", 0)
 
 
-def train_dqn(episodes: int = 50, record_every: int = 50, recordings_dir: str = "recordings"):
+def train_dqn(max_minutes: int = 60, record_every: int = 0, recordings_dir: str = "recordings"):
     config = DQNConfig()
     env = SnakeEnv(render=False, speed=0)
     agent = DQNAgent(config)
 
     best_score = 0
     scores_history = []
-    start_time = time.time() # Start stopuret
+    start_time = time.time()
+    episode = 0
 
-    for episode in range(1, episodes + 1):
+    while True:
+        elapsed_time = time.time() - start_time
+
+        if elapsed_time >= max_minutes * 60:
+            break
+
+        episode += 1
         state = env.reset()
         done = False
 
@@ -153,20 +160,19 @@ def train_dqn(episodes: int = 50, record_every: int = 50, recordings_dir: str = 
 
         score = info.get("score", 0)
         best_score = max(best_score, score)
-        
-        # Gem tidspunkt og score
+
         elapsed_time = time.time() - start_time
         scores_history.append((elapsed_time, score))
 
-        # Print fremskridt hver 10. episode så du kan følge med i terminalen
         if episode % 10 == 0:
-            print(f"DQN Episode {episode}/{episodes} | Score: {score} | Best: {best_score} | Tid: {elapsed_time:.1f}s | Epsilon: {agent.epsilon:.2f}")
+            print(f"DQN Episode {episode} | Score: {score} | Best: {best_score} | Tid: {elapsed_time:.1f}s | Epsilon: {agent.epsilon:.2f}")
 
         if record_every and episode % record_every == 0:
             filename = os.path.join(recordings_dir, f"dqn_episode_{episode}.mp4")
-            record_score = record_episode(agent.model, filename)
+            record_episode(agent.model, filename)
 
     return scores_history
 
+
 if __name__ == "__main__":
-    train_dqn(episodes=50, record_every=0)
+    train_dqn(max_minutes=60)

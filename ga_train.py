@@ -1,5 +1,6 @@
 import os
 import random
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -10,11 +11,10 @@ from snake_env import ACTION_LEFT, ACTION_RIGHT, ACTION_STRAIGHT, SnakeEnv
 
 @dataclass
 class GAConfig:
-    population_size: int = 50
-    elite_size: int = 10
+    population_size: int = 100
+    elite_size: int = 20
     mutation_rate: float = 0.1
     mutation_strength: float = 0.2
-    generations: int = 50
     max_steps: int = 1000
 
 
@@ -45,7 +45,6 @@ class Genome:
 def evaluate(genome: Genome, env: SnakeEnv, max_steps: int) -> tuple[float, int, float]:
     state = env.reset()
     score = 0
-    steps = 0
     total_reward = 0.0
 
     for _ in range(max_steps):
@@ -53,27 +52,18 @@ def evaluate(genome: Genome, env: SnakeEnv, max_steps: int) -> tuple[float, int,
         state, reward, done, _, info = env.step(action)
         score = info.get("score", 0)
         total_reward += reward
-        steps += 1
         if done:
             break
 
-    fitness = total_reward
-    return fitness, score, total_reward
+    return total_reward, score, total_reward
 
 
 def crossover(parent_a: Genome, parent_b: Genome) -> Genome:
     child = parent_a.copy()
-
-    mask_w1 = np.random.rand(*child.w1.shape) < 0.5
-    mask_b1 = np.random.rand(*child.b1.shape) < 0.5
-    mask_w2 = np.random.rand(*child.w2.shape) < 0.5
-    mask_b2 = np.random.rand(*child.b2.shape) < 0.5
-
-    child.w1 = np.where(mask_w1, parent_a.w1, parent_b.w1)
-    child.b1 = np.where(mask_b1, parent_a.b1, parent_b.b1)
-    child.w2 = np.where(mask_w2, parent_a.w2, parent_b.w2)
-    child.b2 = np.where(mask_b2, parent_a.b2, parent_b.b2)
-
+    child.w1 = np.where(np.random.rand(*child.w1.shape) < 0.5, parent_a.w1, parent_b.w1)
+    child.b1 = np.where(np.random.rand(*child.b1.shape) < 0.5, parent_a.b1, parent_b.b1)
+    child.w2 = np.where(np.random.rand(*child.w2.shape) < 0.5, parent_a.w2, parent_b.w2)
+    child.b2 = np.where(np.random.rand(*child.b2.shape) < 0.5, parent_a.b2, parent_b.b2)
     return child
 
 
@@ -83,33 +73,23 @@ def mutate(genome: Genome, rate: float, strength: float):
         param += mask * np.random.randn(*param.shape) * strength
 
 
-def record_episode(genome: Genome, filename: str, *, max_steps: int = 1000):
-    env = SnakeEnv(render=True, speed=20)
-    recorder = EnvVideoRecorder(env)
-
-    state = recorder.reset()
-    for _ in range(max_steps):
-        recorder.render()
-        action = genome.act(state)
-        state, reward, done, _, info = recorder.step(action)
-        if done:
-            break
-
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
-    recorder.save(filename)
-    return info.get("score", 0)
-
-
-def train_ga(generations: int = 100, record_every: int = 10, recordings_dir: str = "recordings"):
-    import time
-    config = GAConfig(generations=generations)
+def train_ga(max_minutes: int = 60, recordings_dir: str = "recordings"):
+    config = GAConfig()
     env = SnakeEnv(render=False, speed=0)
 
     population = [Genome() for _ in range(config.population_size)]
-    history = []
-    start_time = time.time() # Start stopuret
+    best_score_overall = 0
+    scores_history = []
+    generation = 0
+    start_time = time.time()
 
-    for generation in range(1, config.generations + 1):
+    while True:
+        elapsed_time = time.time() - start_time
+
+        if elapsed_time >= max_minutes * 60:
+            break
+
+        generation += 1
         scored = []
         for genome in population:
             fitness, score, total_reward = evaluate(genome, env, config.max_steps)
@@ -117,22 +97,17 @@ def train_ga(generations: int = 100, record_every: int = 10, recordings_dir: str
 
         scored.sort(key=lambda x: x[0], reverse=True)
         best_fitness, best_score, best_reward, best_genome = scored[0]
-        
-        # Beregn AVERAGE score for hele populationen i denne generation
-        avg_score = sum(s[1] for s in scored) / len(scored)
-        
+        if best_score > best_score_overall:
+            best_score_overall = best_score
+
+        avg_score = float(np.mean([s for _, s, _, _ in scored]))
         elapsed_time = time.time() - start_time
-        
-        # Gem best_score (den kloge slange) i stedet for gennemsnittet af alle mutationerne
-        history.append((elapsed_time, best_score))
+        scores_history.append((elapsed_time, best_score))
 
-        print(f"Gen {generation} | Best {best_score} | Avg {avg_score:.2f} | Time {elapsed_time:.1f}s")
+        if generation % 10 == 0:
+            print(f"GA Generation {generation} | Best: {best_score} | Avg: {avg_score:.2f} | Tid: {elapsed_time:.1f}s")
 
-        if record_every and generation % record_every == 0:
-            filename = os.path.join(recordings_dir, f"ga_generation_{generation}.mp4")
-            record_score = record_episode(best_genome, filename)
-
-        elites = [genome.copy() for _, _, _, genome in scored[: config.elite_size]]
+        elites = [genome.copy() for _, _, _, genome in scored[:config.elite_size]]
         next_population = elites[:]
 
         while len(next_population) < config.population_size:
@@ -143,7 +118,9 @@ def train_ga(generations: int = 100, record_every: int = 10, recordings_dir: str
 
         population = next_population
 
-    return history
+    print(f"GA complete | {generation} generations | Best score: {best_score_overall}")
+    return scores_history
+
 
 if __name__ == "__main__":
-    train_ga(generations=50, record_every=0, recordings_dir="recordings")
+    train_ga(max_minutes=60)
