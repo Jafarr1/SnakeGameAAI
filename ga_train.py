@@ -209,7 +209,7 @@ def record_episode(
     best_frames = []
 
     for _ in range(n_attempts):
-        env = SnakeEnv(render=True, speed=20)
+        env = SnakeEnv(render=True, speed=0)
         recorder = EnvVideoRecorder(env)
         state = recorder.reset()
 

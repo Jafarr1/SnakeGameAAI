@@ -126,7 +126,7 @@ def record_episode(model: LinearQNet, filename: str, *, max_steps: int = 10000, 
     best_frames = []
 
     for _ in range(n_attempts):
-        env = SnakeEnv(render=True, speed=20)
+        env = SnakeEnv(render=True, speed=0)
         recorder = EnvVideoRecorder(env)
         state = recorder.reset()
 

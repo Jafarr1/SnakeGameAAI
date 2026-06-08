@@ -8,13 +8,13 @@ class EnvVideoRecorder:
     Henrik Strøm, November 2022
     """
 
-    def init(self, env):
+    def __init__(self, env):
         self._frame_buffer = []
         self._rewards = []
         self._env = env
         self._saved = False
 
-    def len(self):
+    def __len__(self):
         return len(self._frame_buffer)
 
     def rewards(self):
@@ -37,20 +37,19 @@ class EnvVideoRecorder:
 
     def save(self, filename, fps=30):
         self._filename = filename
-        with imageio.get_writer(filename, fps=fps) as flick:
+        with imageio.get_writer(filename, fps=fps) as writer:
             for frame in self._frame_buffer:
-                flick.append_data(frame)
+                writer.append_data(frame)
         self._saved = True
 
     def embed_jupyter(self):
         import IPython
         if self._saved:
-            flick = open(self._filename, 'rb')
-            video = flick.read()
-            flick.close()
+            with open(self._filename, 'rb') as f:
+                video = f.read()
             base64_video = base64.b64encode(video)
             html_tag = '''
-            <video with="608" height="400" controls>
+            <video width="608" height="400" controls>
                 <source src="data:video/mp4;base64,{0}" type="video/mp4" />
                 Please use a browser that supports the HTML video tag.
             </video>
